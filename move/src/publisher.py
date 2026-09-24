@@ -14,6 +14,8 @@ Each task is marked with a TASK n.n comment matching the README. Commented-out l
 deliberate: uncomment and complete them.
 """
 
+import math
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -38,19 +40,37 @@ class RobotController(Node):
         # ---- TASK 1.2: publisher that drives the robot ---------------------
         # Which topic moves the robot? Find it first (TASK 1.1), then uncomment.
         #
-        # self.move_pub = self.create_publisher(Twist, '<TODO: topic name>', 10)
+        self.move_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         #
         # Then drive it on a timer:
-        # self.move_timer = self.create_timer(0.1, self.send_move_cmd)
+        self.move_timer = self.create_timer(0.1, self.send_move_cmd)
 
         # ---- TASK 1.3: the path you chose ----------------------------------
         # Pick a route that gets the robot around the wall, and represent it
         # however you think is best -- a list of waypoints, a sequence of
         # timed velocity commands, a parametric curve, something else.
-        #
+        
         # Document HERE why you chose this path and this representation.
+
+        # I want to drive the robot with a list of waypoints and a simple driving approach. 
+        # I think this is the best approach for this task since it allows for the most amount of control and change over time
+        # In the future, since the waypoints are already established I could easily develop splines or parametric curves to go around the wall
+        # For right now, waypoints make it easy to visualize, easy to change, and easy to implement.
+        # I'm implementing it in a list of tuples since it's simple and easy to parse for when implementing actual movement.
+    # wall y coordinates are -3 to 3, x is 5.75 to 6.25
+        self.path =[
+            (0.0, 0.0),
+            (5, 4.0),
+            (6.3,4.0),
+            (7.5,0)
+        ]
+        self.linear_speed = 1.0
+        self.angular_speed = 1.0
+        self.path_commands = self.build_path_commands()
+        self.command_index = 0
+        self.command_ticks = 0
+
         # That reasoning is a large part of what we are evaluating.
-        self.path = None
 
         # ---- TASK 2.2: subscriber for the robot's 6D pose ------------------
         # One of the two onboard sensors reports 6D data. Find it (TASK 2.1).
@@ -91,9 +111,56 @@ class RobotController(Node):
     def send_move_cmd(self):
         """Publish one Twist that moves the robot along self.path.
 
-        TODO: build the Twist and publish it on self.move_pub.
+        Works by:
+        1. Going through the self.path
+        2. Taking index 0 as the current position and the rest as targets.
+        3. Define a set linearx and angular z speed.
+        4. Converting each segment into a separate turn and forward command
+            4a. This happens by calculating the angle to move and the distance to travel.
+            4b. The command is appended to the command list and returned
+        5. After commands are built, each tick we go through the commadn lsit and execute
         """
-        raise NotImplementedError('TASK 1.2')
+        command = Twist()
+
+        if self.command_index < len(self.path_commands):
+            linear_x, angular_z, duration = self.path_commands[self.command_index]
+            command.linear.x = linear_x
+            command.angular.z = angular_z
+            self.command_ticks += 1
+
+            if self.command_ticks >= duration:
+                self.command_index += 1
+                self.command_ticks = 0
+
+        self.move_pub.publish(command)
+
+    def build_path_commands(self):
+        commands = []
+        current_x, current_y = self.path[0]
+        current_heading = 0.0
+
+        for target_x, target_y in self.path[1:]:
+            delta_x = target_x - current_x
+            delta_y = target_y - current_y
+            distance = math.hypot(delta_x, delta_y)
+            target_heading = math.atan2(delta_y, delta_x)
+            turn = math.atan2(
+                math.sin(target_heading - current_heading),
+                math.cos(target_heading - current_heading),
+            )
+
+            if abs(turn) > 0.0001:
+                commands.append((0.0, math.copysign(self.angular_speed, turn),
+                                 max(1, round(abs(turn) / self.angular_speed / 0.1))))
+            if distance > 0.0001:
+                commands.append((self.linear_speed, 0.0,
+                                 max(1, round(distance / self.linear_speed / 0.1))))
+
+            #updating all values for the next iteration
+            current_x, current_y = target_x, target_y
+            current_heading = target_heading
+
+        return commands
 
     # -----------------------------------------------------------------------
     # TASK 2.3 -- compare reported position against ground truth
