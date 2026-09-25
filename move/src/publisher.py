@@ -104,8 +104,7 @@ class RobotController(Node):
         self.actual_x = None
         self.actual_y = None
 
-        # IMU dead-reckoning state. The robot spawns at the odom origin at
-        # rest, so the estimate starts at (0, 0) with zero velocity.
+        # estimate starts at (0,0)
         self.est_x = 0.0
         self.est_y = 0.0
         self.est_vx = 0.0
@@ -273,12 +272,11 @@ class RobotController(Node):
             point_cloud2.create_cloud_xyz32(msg.header, obstacles))
 
         # TODO: convert the obstacle points from the lidar frame into global
-        # (odom) coordinates and save the pole's position, e.g. self.pole_x and
-        # self.pole_y. For each point: add the lidar's offset on the chassis
-        # (0.8, 0, 0.5 in model.sdf), rotate by the robot's yaw with the 2D
-        # rotation matrix [[cos(yaw), -sin(yaw)], [sin(yaw), cos(yaw)]], then
+        # (odom) coordinates and save the pole's position. 
+        # For each point I'd add the lidar's offset onto the chassis
+        # Each lidar offset should run through a 2d rotational matrix to fix the coordinate system, then
         # add the robot's odometry position. Averaging the rotated points
-        # gives roughly the pole's center.
+        # gives roughly the pole's center as a data point we can save.
 
 
 def main(args=None):
