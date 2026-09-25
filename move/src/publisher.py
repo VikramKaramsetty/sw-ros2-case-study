@@ -62,7 +62,7 @@ class RobotController(Node):
             (0.0, 0.0),
             (5, -5.0),
             (6.3,-5.0),
-            (7.5,0)
+            (9,0)
         ]
         self.linear_speed = 1.0
         self.angular_speed = 1.0
