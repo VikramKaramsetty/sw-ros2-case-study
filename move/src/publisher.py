@@ -244,11 +244,12 @@ class RobotController(Node):
 
         TODO: decide what separates a pole from the barrier and implement it.
         """
-        # Since only poles properly return values and the max range is of the lidar is ~10m 
-        # so I'm limiting the conditions to 11m.
-        x, y, z = point
+        #limiting the range of returned values to things inside of lidar range ~10m
+        # Since the wall returns points, range alone isn't enough. The world
+        # gives the barrier laser_retro 0 and the poles 2000, which is considered point intensity, so we keep only strong returns (above the midpoint).
+        x, y, z, intensity = point
         dist = math.sqrt(x * x + y * y + z * z)
-        return math.isfinite(dist) and 0.08 <= dist <= 11.0
+        return math.isfinite(dist) and 0.08 <= dist <= 11.0 and intensity > 1000.0
 
     # -----------------------------------------------------------------------
     # TASK 3.2 -- filter the scan and republish what matters
@@ -263,7 +264,7 @@ class RobotController(Node):
         TODO: keep only the obstacle points and publish on self.obstacle_pub.
         """
         points = point_cloud2.read_points(
-            msg, field_names=('x', 'y', 'z'), skip_nans=True)
+            msg, field_names=('x', 'y', 'z', 'intensity'), skip_nans=True)
         obstacles = []
         for p in points:
             if self.is_obstacle(p):
