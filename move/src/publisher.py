@@ -245,8 +245,8 @@ class RobotController(Node):
         TODO: decide what separates a pole from the barrier and implement it.
         """
         #limiting the range of returned values to things inside of lidar range ~10m
-        # Since the wall returns points, range alone isn't enough. The world
-        # gives the barrier laser_retro 0 and the poles 2000, which is considered point intensity, so we keep only strong returns (above the midpoint).
+        # Since the wall returns points, range alone isn't enough. The world file says 
+        # the barrier laser_retro is 0 and the poles 2000, which is considered point intensity, so we can filter with this
         x, y, z, intensity = point
         dist = math.sqrt(x * x + y * y + z * z)
         return math.isfinite(dist) and 0.08 <= dist <= 11.0 and intensity > 1000.0
