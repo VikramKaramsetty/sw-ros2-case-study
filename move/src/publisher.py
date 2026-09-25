@@ -22,7 +22,7 @@ from rclpy.qos import qos_profile_sensor_data
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import Imu, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Float64
 
@@ -60,8 +60,8 @@ class RobotController(Node):
     # wall y coordinates are -3 to 3, x is 5.75 to 6.25
         self.path =[
             (0.0, 0.0),
-            (5, 4.0),
-            (6.3,4.0),
+            (5, -5.0),
+            (6.3,-5.0),
             (7.5,0)
         ]
         self.linear_speed = 1.0
@@ -75,19 +75,42 @@ class RobotController(Node):
         # ---- TASK 2.2: subscriber for the robot's 6D pose ------------------
         # One of the two onboard sensors reports 6D data. Find it (TASK 2.1).
         #
-        # self.robot_pos_sub = self.create_subscription(
-        #     <TODO: msg type>,
-        #     '<TODO: topic name>',
-        #     self.on_robot_pos,
-        #     qos_profile_sensor_data,
-        # )
+        # The IMU is the 6D sensor: 3 axes of linear acceleration + 3 axes of
+        # angular velocity (plus an orientation estimate). The lidar only gives
+        # ranges, so it can't tell us where the robot is on its own.
+        self.robot_pos_sub = self.create_subscription(
+            Imu,
+            '/imu',
+            self.on_robot_pos,
+            qos_profile_sensor_data,
+        )
 
         # ---- TASK 2.3: where the measured-vs-actual error goes -------------
-        # self.error_pub = self.create_publisher(Float64, '/error', 10)
+        self.error_pub = self.create_publisher(Float64, '/error', 10)
         #
         # Hint: ground truth for "actual" is published by the simulator on the
         # robot's odometry topic (nav_msgs/Odometry). Deciding what to compare,
         # and in which frame, is part of the task.
+        #
+        # Ground truth comes from the diff-drive plugin's odometry, bridged
+        # from gz in sim.launch.py. We just keep the latest pose around so the
+        # IMU callback can compare against it.
+        self.odom_sub = self.create_subscription(
+            Odometry,
+            '/model/vehicle_blue/odometry',
+            self.on_odom,
+            10,
+        )
+        self.actual_x = None
+        self.actual_y = None
+
+        # IMU dead-reckoning state. The robot spawns at the odom origin at
+        # rest, so the estimate starts at (0, 0) with zero velocity.
+        self.est_x = 0.0
+        self.est_y = 0.0
+        self.est_vx = 0.0
+        self.est_vy = 0.0
+        self.last_imu_time = None
 
         # ---- TASK 3: lidar in, filtered obstacles out ----------------------
         # The lidar has a single vertical sample, so this cloud is one flat
@@ -168,12 +191,48 @@ class RobotController(Node):
     def on_robot_pos(self, msg):
         """Compare the sensor's idea of where we are against the truth.
 
-        Publish a Float64 on self.error_pub when the delta exceeds
-        self.error_thresh.
-
         TODO: decide what "delta" means here and justify it in a comment.
+
+        THe delta here means the difference between the position we can derive from the IMU's acceleration
+        values and the ground truth odometry data. This is achieved by using a rotational matrix on the IMU's
+        acceleration values and ther IMU's yaw and then integrating twice to get the position. The final delta 
+        simply the difference between x and y on this final position and the odometry. Since this change in            position is kept track for each loop and summed, the delta updates to continue to show any deviations.
         """
-        raise NotImplementedError('TASK 2.3')
+
+       #time the sensor receieved the time
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.last_imu_time is None:
+            self.last_imu_time = t
+            return
+        dt = t - self.last_imu_time
+        self.last_imu_time = t
+
+        q = msg.orientation
+      # imu quaternion -> yaw 
+        yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y ** 2 + q.z ** 2))
+        ax_body = msg.linear_acceleration.x
+        ay_body = msg.linear_acceleration.y
+      # rotational matrix to convert coordinate planes
+        ax = ax_body * math.cos(yaw) - ay_body * math.sin(yaw)
+        ay = ax_body * math.sin(yaw) + ay_body * math.cos(yaw)
+
+      # updating estimates
+        self.est_x += self.est_vx * dt
+        self.est_y += self.est_vy * dt
+        self.est_vx += ax * dt
+        self.est_vy += ay * dt
+
+        if self.actual_x is None:
+            return
+        delta = math.hypot(self.est_x - self.actual_x, self.est_y - self.actual_y)
+        if delta > self.error_thresh:
+            self.error_pub.publish(Float64(data=delta))
+
+  # defining the on_odom func to always save the actual x,y 
+    def on_odom(self, msg):
+        """Save the latest ground-truth position."""
+        self.actual_x = msg.pose.pose.position.x
+        self.actual_y = msg.pose.pose.position.y
 
     # -----------------------------------------------------------------------
     # TASK 3.3 -- classify a single lidar point
