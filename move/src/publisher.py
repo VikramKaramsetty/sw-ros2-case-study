@@ -116,14 +116,14 @@ class RobotController(Node):
         # The lidar has a single vertical sample, so this cloud is one flat
         # row of points at the sensor's height -- not a 3D volume.
         #
-        # self.lidar_sub = self.create_subscription(
-        #     PointCloud2,
-        #     '/lidar/points',
-        #     self.on_lidar,
-        #     qos_profile_sensor_data,
-        # )
-        # self.obstacle_pub = self.create_publisher(
-        #     PointCloud2, '/obstacle_cloud', 10)
+        self.lidar_sub = self.create_subscription(
+            PointCloud2,
+            '/lidar/points',
+            self.on_lidar,
+            qos_profile_sensor_data,
+        )
+        self.obstacle_pub = self.create_publisher(
+            PointCloud2, '/obstacle_cloud', 10)
 
         self.get_logger().info(
             'robot_controller started (scaffold -- nothing wired up yet)')
@@ -245,7 +245,11 @@ class RobotController(Node):
 
         TODO: decide what separates a pole from the barrier and implement it.
         """
-        raise NotImplementedError('TASK 3.3')
+        # Since only poles properly return values and the max range is of the lidar is ~10m 
+        # so I'm limiting the conditions to 11m.
+        x, y, z = point
+        dist = math.sqrt(x * x + y * y + z * z)
+        return math.isfinite(dist) and 0.08 <= dist <= 11.0
 
     # -----------------------------------------------------------------------
     # TASK 3.2 -- filter the scan and republish what matters
@@ -259,7 +263,22 @@ class RobotController(Node):
 
         TODO: keep only the obstacle points and publish on self.obstacle_pub.
         """
-        raise NotImplementedError('TASK 3.2')
+        points = point_cloud2.read_points(
+            msg, field_names=('x', 'y', 'z'), skip_nans=True)
+        obstacles = []
+        for p in points:
+            if self.is_obstacle(p):
+                obstacles.append((p[0], p[1], p[2]))
+        self.obstacle_pub.publish(
+            point_cloud2.create_cloud_xyz32(msg.header, obstacles))
+
+        # TODO: convert the obstacle points from the lidar frame into global
+        # (odom) coordinates and save the pole's position, e.g. self.pole_x and
+        # self.pole_y. For each point: add the lidar's offset on the chassis
+        # (0.8, 0, 0.5 in model.sdf), rotate by the robot's yaw with the 2D
+        # rotation matrix [[cos(yaw), -sin(yaw)], [sin(yaw), cos(yaw)]], then
+        # add the robot's odometry position. Averaging the rotated points
+        # gives roughly the pole's center.
 
 
 def main(args=None):
